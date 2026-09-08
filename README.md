@@ -51,10 +51,15 @@ integration-demo/
             ├── Product.jsx        Product details and the Checkout button
             ├── Checkout.jsx       The whole checkout form (name, email, submit, errors)
             └── Confirmation.jsx   Success screen with the order ID
+
 ```
 
 The 1.2 second delay in `POST /api/checkout` is artificial, standing in for real processor
 latency so the submitting state is visible.
+
+The client hot-reloads on save; the server does not. `node --watch` would give the server the
+same behaviour but crashes with `EMFILE: too many open files` on this machine, so restart
+`npm run dev` after editing anything under `server/`.
 
 ## Phase 2 (upcoming)
 

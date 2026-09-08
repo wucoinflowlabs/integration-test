@@ -1,37 +1,107 @@
-import { useState } from "react";
-import { submitCheckout } from "../api.js";
+import { useRef, useState } from "react";
+import { CoinflowPurchase } from "@coinflowlabs/react";
+import { fetchJwtToken, fetchSessionKey, recordOrder } from "../api.js";
 
-// This component owns the entire checkout surface. App.jsx only knows about the
-// onSuccess(order) and onCancel() callbacks, so phase 2 can replace everything
-// below with <CoinflowPurchase> without touching the parent.
+// Coinflow's onSuccess may pass a string or { paymentId }.
+function paymentIdFrom(result) {
+  return typeof result === "string" ? result : result?.paymentId;
+}
+
 export default function Checkout({ product, onSuccess, onCancel }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  const [tokens, setTokens] = useState(null);
+  const [preparing, setPreparing] = useState(false);
   const [error, setError] = useState(null);
+  const settled = useRef(false);
 
-  async function handleSubmit(event) {
+  // Call the two backend steps in parallel, then show <CoinflowPurchase>.
+  async function handleDetails(event) {
     event.preventDefault();
-    setSubmitting(true);
+    setPreparing(true);
     setError(null);
 
     try {
-      const order = await submitCheckout({ name, email });
-      onSuccess(order);
+      const [session, checkout] = await Promise.all([
+        fetchSessionKey(email),
+        fetchJwtToken(email),
+      ]);
+      setTokens({ ...session, ...checkout });
     } catch (err) {
       setError(err.message);
-      setSubmitting(false);
+    } finally {
+      setPreparing(false);
     }
+  }
+
+  async function handlePaid(result) {
+    if (settled.current) return;
+    settled.current = true;
+
+    const paymentId = paymentIdFrom(result);
+    if (!paymentId) {
+      settled.current = false;
+      setError("Coinflow reported success but returned no payment ID.");
+      return;
+    }
+
+    try {
+      onSuccess(await recordOrder({ paymentId, name, email }));
+    } catch (err) {
+      settled.current = false;
+      setError(`Payment ${paymentId} went through, but recording the order failed: ${err.message}`);
+    }
+  }
+
+  // Doc step 4: tokens from steps 2 and 3 become props on the hosted card form.
+  if (tokens) {
+    return (
+      <section>
+        <h2>Payment</h2>
+        <p className="muted">
+          Paying {product.currency} {product.price} for {product.name} as {email}.
+        </p>
+
+        {error && <p className="error">{error}</p>}
+
+        {/* Do not pass handleHeightChange: the SDK then sets scrolling="no" and
+            the pay button can be clipped if the height value has no CSS unit. */}
+        <div className="coinflow-frame">
+          <CoinflowPurchase
+            merchantId={tokens.merchantId}
+            env={tokens.env}
+            sessionKey={tokens.sessionKey}
+            jwtToken={tokens.jwtToken}
+            subtotal={tokens.subtotal}
+            email={email}
+            webhookInfo={tokens.webhookInfo}
+            chargebackProtectionData={tokens.chargebackProtectionData}
+            onSuccess={handlePaid}
+          />
+        </div>
+
+        <button type="button" className="secondary" onClick={onCancel}>
+          Cancel
+        </button>
+
+        {tokens.env === "sandbox" && (
+          <p className="footnote">
+            Sandbox - no real money. Test card <code>5204247750001471</code> with any
+            future expiry and any CVV.
+          </p>
+        )}
+      </section>
+    );
   }
 
   return (
     <section>
       <h2>Checkout</h2>
       <p className="muted">
-        Paying for {product.name} ({product.currency} {product.price})
+        Paying {product.currency} {product.price} for {product.name}.
       </p>
 
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={handleDetails}>
         <label htmlFor="name">Name</label>
         <input
           id="name"
@@ -55,16 +125,16 @@ export default function Checkout({ product, onSuccess, onCancel }) {
         {error && <p className="error">{error}</p>}
 
         <div className="actions">
-          <button type="submit" disabled={submitting}>
-            {submitting ? "Processing..." : "Pay now"}
+          <button type="submit" disabled={preparing}>
+            {preparing ? "Preparing..." : "Continue to payment"}
           </button>
-          <button type="button" className="secondary" onClick={onCancel} disabled={submitting}>
+          <button type="button" className="secondary" onClick={onCancel} disabled={preparing}>
             Cancel
           </button>
         </div>
       </form>
 
-      <p className="footnote">No card fields, no real payment. Any name and email works.</p>
+      <p className="footnote">Card details are entered on Coinflow's hosted form, never here.</p>
     </section>
   );
 }

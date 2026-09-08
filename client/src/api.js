@@ -9,14 +9,29 @@ async function request(path, options) {
   return body;
 }
 
+function postJson(path, payload) {
+  return request(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
 export function fetchProduct() {
   return request("/api/product");
 }
 
-export function submitCheckout({ name, email }) {
-  return request("/api/checkout", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, email }),
-  });
+// Doc step 2
+export function fetchSessionKey(email) {
+  return postJson("/api/coinflow/session-key", { email });
+}
+
+// Doc step 3
+export function fetchJwtToken(email) {
+  return postJson("/api/coinflow/jwt-token", { email });
+}
+
+// After Coinflow reports a successful charge
+export function recordOrder({ paymentId, name, email }) {
+  return postJson("/api/checkout", { paymentId, name, email });
 }

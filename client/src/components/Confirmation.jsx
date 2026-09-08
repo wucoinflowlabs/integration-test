@@ -6,6 +6,9 @@ export default function Confirmation({ order, onReset }) {
       <p>
         Order ID: <code>{order.orderId}</code>
       </p>
+      <p>
+        Coinflow payment: <code>{order.paymentId}</code>
+      </p>
       <button type="button" onClick={onReset}>
         Buy another
       </button>

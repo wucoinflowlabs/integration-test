@@ -1,28 +1,33 @@
+import { randomUUID } from "node:crypto";
 import { Router } from "express";
+import { PRODUCT } from "../catalog.js";
 
 const router = Router();
+const orders = new Map();
 
-const PROCESSING_DELAY_MS = 1200;
+// Called after <CoinflowPurchase> reports success. The charge already happened;
+// this only records a local order id.
+router.post("/", (req, res) => {
+  const { paymentId, name, email } = req.body ?? {};
 
-const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-router.post("/", async (req, res) => {
-  const { name, email } = req.body ?? {};
-
-  if (!name || !email) {
-    return res.status(400).json({ success: false, error: "name and email are required" });
+  if (!paymentId) {
+    return res.status(400).json({ success: false, error: "paymentId is required" });
   }
 
-  // Phase 2: this is where the Coinflow charge is verified before an order is
-  // recorded. Nothing here touches card data, and nothing real is charged.
-  await delay(PROCESSING_DELAY_MS);
-
-  res.json({
-    success: true,
-    orderId: "demo_12345",
+  const orderId = `order_${randomUUID().slice(0, 8)}`;
+  const order = {
+    orderId,
+    paymentId,
     name,
     email,
-  });
+    productId: PRODUCT.id,
+    amount: { cents: PRODUCT.priceCents, currency: PRODUCT.currency },
+    createdAt: new Date().toISOString(),
+  };
+
+  orders.set(orderId, order);
+  console.log(`Recorded ${orderId} for Coinflow payment ${paymentId}`);
+  res.json({ success: true, ...order });
 });
 
 export default router;

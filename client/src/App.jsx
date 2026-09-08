@@ -28,7 +28,7 @@ export default function App() {
     <main className="page">
       <header className="page-header">
         <h1>Demo Store</h1>
-        <p className="badge">Phase 1 - fake checkout, no payment processor</p>
+        <p className="badge">Sandbox checkout via Coinflow</p>
       </header>
 
       <div className="card">
