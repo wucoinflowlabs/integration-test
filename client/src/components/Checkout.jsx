@@ -10,6 +10,7 @@ function paymentIdFrom(result) {
 export default function Checkout({ product, onSuccess, onCancel }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [amount, setAmount] = useState(String(product.price));
   const [tokens, setTokens] = useState(null);
   const [preparing, setPreparing] = useState(false);
   const [error, setError] = useState(null);
@@ -21,10 +22,17 @@ export default function Checkout({ product, onSuccess, onCancel }) {
     setPreparing(true);
     setError(null);
 
+    const cents = Math.round(Number(amount) * 100);
+    if (!Number.isInteger(cents) || cents < 50) {
+      setError("Enter an amount of at least $0.50");
+      setPreparing(false);
+      return;
+    }
+
     try {
       const [session, checkout] = await Promise.all([
         fetchSessionKey(email),
-        fetchJwtToken(email),
+        fetchJwtToken(email, cents),
       ]);
       setTokens({ ...session, ...checkout });
     } catch (err) {
@@ -46,7 +54,7 @@ export default function Checkout({ product, onSuccess, onCancel }) {
     }
 
     try {
-      onSuccess(await recordOrder({ paymentId, name, email }));
+      onSuccess(await recordOrder({ paymentId, name, email, cents: tokens.subtotal.cents }));
     } catch (err) {
       settled.current = false;
       setError(`Payment ${paymentId} went through, but recording the order failed: ${err.message}`);
@@ -59,7 +67,7 @@ export default function Checkout({ product, onSuccess, onCancel }) {
       <section>
         <h2>Payment</h2>
         <p className="muted">
-          Paying {product.currency} {product.price} for {product.name} as {email}.
+          Paying {product.currency} {(tokens.subtotal.cents / 100).toFixed(2)} for {product.name} as {email}.
         </p>
 
         {error && <p className="error">{error}</p>}
@@ -98,10 +106,22 @@ export default function Checkout({ product, onSuccess, onCancel }) {
     <section>
       <h2>Checkout</h2>
       <p className="muted">
-        Paying {product.currency} {product.price} for {product.name}.
+        Paying for {product.name}. Catalog price is {product.currency} {product.price}; you can
+        change the amount for this payment.
       </p>
 
       <form onSubmit={handleDetails}>
+        <label htmlFor="amount">Amount ({product.currency})</label>
+        <input
+          id="amount"
+          type="number"
+          min="0.50"
+          step="0.01"
+          value={amount}
+          required
+          onChange={(event) => setAmount(event.target.value)}
+        />
+
         <label htmlFor="name">Name</label>
         <input
           id="name"

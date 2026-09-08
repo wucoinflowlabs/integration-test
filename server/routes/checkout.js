@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Router } from "express";
-import { PRODUCT } from "../catalog.js";
+import { PRODUCT, centsFromRequest } from "../catalog.js";
 
 const router = Router();
 const orders = new Map();
@@ -8,10 +8,17 @@ const orders = new Map();
 // Called after <CoinflowPurchase> reports success. The charge already happened;
 // this only records a local order id.
 router.post("/", (req, res) => {
-  const { paymentId, name, email } = req.body ?? {};
+  const { paymentId, name, email, cents: requestedCents } = req.body ?? {};
 
   if (!paymentId) {
     return res.status(400).json({ success: false, error: "paymentId is required" });
+  }
+
+  let cents;
+  try {
+    cents = centsFromRequest(requestedCents);
+  } catch (error) {
+    return res.status(400).json({ success: false, error: error.message });
   }
 
   const orderId = `order_${randomUUID().slice(0, 8)}`;
@@ -21,7 +28,7 @@ router.post("/", (req, res) => {
     name,
     email,
     productId: PRODUCT.id,
-    amount: { cents: PRODUCT.priceCents, currency: PRODUCT.currency },
+    amount: { cents, currency: PRODUCT.currency },
     createdAt: new Date().toISOString(),
   };
 

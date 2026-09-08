@@ -1,17 +1,22 @@
 import { useEffect, useState } from "react";
-import { fetchProduct } from "./api.js";
+import { CoinflowPurchaseProtection } from "@coinflowlabs/react";
+import { fetchCoinflowConfig, fetchProduct } from "./api.js";
 import Product from "./components/Product.jsx";
 import Checkout from "./components/Checkout.jsx";
 import Confirmation from "./components/Confirmation.jsx";
 
 export default function App() {
   const [product, setProduct] = useState(null);
+  const [coinflow, setCoinflow] = useState(null);
   const [loadError, setLoadError] = useState(null);
   const [step, setStep] = useState("product");
   const [order, setOrder] = useState(null);
 
   useEffect(() => {
     fetchProduct().then(setProduct).catch((err) => setLoadError(err.message));
+    fetchCoinflowConfig().then(setCoinflow).catch((err) => {
+      console.error("Could not load Coinflow config for purchase protection:", err.message);
+    });
   }, []);
 
   function handleSuccess(completedOrder) {
@@ -26,6 +31,9 @@ export default function App() {
 
   return (
     <main className="page">
+      {coinflow && (
+        <CoinflowPurchaseProtection merchantId={coinflow.merchantId} coinflowEnv={coinflow.env} />
+      )}
       <header className="page-header">
         <h1>Demo Store</h1>
         <p className="badge">Sandbox checkout via Coinflow</p>
