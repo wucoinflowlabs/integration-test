@@ -35,6 +35,10 @@ export function fetchJwtToken(email, cents) {
   return postJson("/api/coinflow/jwt-token", { email, cents });
 }
 
+export function fetchCheckoutLink(email, cents) {
+  return postJson("/api/coinflow/checkout-link", { email, cents });
+}
+
 // After Coinflow reports a successful charge
 export function recordOrder({ paymentId, name, email, cents }) {
   return postJson("/api/checkout", { paymentId, name, email, cents });

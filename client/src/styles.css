@@ -93,7 +93,14 @@ input:focus {
 
 .actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.6rem;
+}
+
+.link-break {
+  display: block;
+  overflow-wrap: anywhere;
+  word-break: break-all;
 }
 
 .coinflow-frame {

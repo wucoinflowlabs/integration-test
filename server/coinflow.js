@@ -90,3 +90,30 @@ export async function createCheckoutJwt({
 
   return checkoutJwtToken;
 }
+
+// Checkout-link guide step 1. Coinflow returns a hosted checkout URL for this
+// customer and cart. Same auth as session-key: API key + our customer id.
+export async function createCheckoutLink({
+  userId,
+  cents,
+  currency,
+  email,
+  webhookInfo,
+  chargebackProtectionData,
+}) {
+  const { link } = await coinflowRequest("/api/checkout/link", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-coinflow-auth-user-id": userId,
+    },
+    body: JSON.stringify({
+      subtotal: { cents, currency },
+      email,
+      webhookInfo,
+      chargebackProtectionData,
+    }),
+  });
+
+  return link;
+}

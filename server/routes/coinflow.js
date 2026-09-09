@@ -3,6 +3,7 @@ import { PRODUCT, cartForChargebackProtection, centsFromRequest } from "../catal
 import {
   coinflowEnv,
   createCheckoutJwt,
+  createCheckoutLink,
   createSessionKey,
   customerIdFor,
 } from "../coinflow.js";
@@ -68,6 +69,42 @@ router.post("/jwt-token", async (req, res) => {
     res.json({ jwtToken, subtotal, webhookInfo, chargebackProtectionData });
   } catch (error) {
     console.error("Failed to create a Coinflow checkout JWT:", error.message);
+    res.status(502).json({ error: error.message });
+  }
+});
+
+// Checkout-link guide step 1. Same cart/amount rules as /jwt-token; the
+// response is a hosted URL instead of a JWT.
+router.post("/checkout-link", async (req, res) => {
+  const { email, cents: requestedCents } = req.body ?? {};
+
+  if (!email) {
+    return res.status(400).json({ error: "email is required" });
+  }
+
+  let cents;
+  try {
+    cents = centsFromRequest(requestedCents);
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+
+  const subtotal = { cents, currency: PRODUCT.currency };
+  const chargebackProtectionData = cartForChargebackProtection(cents);
+  const webhookInfo = { itemName: PRODUCT.name, price: String(cents / 100) };
+
+  try {
+    const link = await createCheckoutLink({
+      userId: customerIdFor(email),
+      ...subtotal,
+      email,
+      webhookInfo,
+      chargebackProtectionData,
+    });
+
+    res.json({ link, subtotal, webhookInfo, chargebackProtectionData });
+  } catch (error) {
+    console.error("Failed to create a Coinflow checkout link:", error.message);
     res.status(502).json({ error: error.message });
   }
 });
