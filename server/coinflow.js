@@ -12,7 +12,7 @@ export function coinflowEnv() {
 function apiKey() {
   const key = process.env.COINFLOW_API_KEY;
   if (!key) {
-    throw new Error("COINFLOW_API_KEY is not set in server/.env");
+    throw new Error("COINFLOW_API_KEY is not set");
   }
   return key;
 }

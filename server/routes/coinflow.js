@@ -15,7 +15,7 @@ const router = Router();
 router.get("/config", (req, res) => {
   const merchantId = process.env.COINFLOW_MERCHANT_ID;
   if (!merchantId) {
-    return res.status(500).json({ error: "COINFLOW_MERCHANT_ID is not set in server/.env" });
+    return res.status(500).json({ error: "COINFLOW_MERCHANT_ID is not set" });
   }
   res.json({ merchantId, env: coinflowEnv() });
 });
