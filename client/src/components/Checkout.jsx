@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { CoinflowPurchase } from "@coinflowlabs/react";
 import { fetchCheckoutLink, fetchJwtToken, fetchSessionKey, recordOrder } from "../api.js";
+import { formatCents } from "../format.js";
 
 const COINFLOW_FRAME_ORIGINS = new Set([
   "https://sandbox.coinflow.cash",
   "https://coinflow.cash",
 ]);
 
-// Coinflow's onSuccess may pass a string or { paymentId }.
 function paymentIdFrom(result) {
-  return typeof result === "string" ? result : result?.paymentId;
+  if (typeof result === "string" && result) return result;
+  if (!result || typeof result !== "object") return null;
+  return result.paymentId ?? result.id ?? result.payment?.paymentId ?? null;
 }
 
 function parseFrameMessage(data) {
@@ -23,7 +25,16 @@ function parseFrameMessage(data) {
   return data && typeof data === "object" ? data : null;
 }
 
-export default function Checkout({ product, onSuccess, onCancel }) {
+function TestCardNote() {
+  return (
+    <p className="callout">
+      Sandbox — no real money. Test card <code>5204247750001471</code> with any future expiry and
+      any CVV.
+    </p>
+  );
+}
+
+export default function Checkout({ product, onSuccess, onCancel, onPaymentSurface }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [amount, setAmount] = useState(String(product.price));
@@ -33,10 +44,14 @@ export default function Checkout({ product, onSuccess, onCancel }) {
   const [error, setError] = useState(null);
   const settled = useRef(false);
 
+  useEffect(() => {
+    onPaymentSurface?.(Boolean(tokens || checkoutLink));
+  }, [tokens, checkoutLink, onPaymentSurface]);
+
   function centsFromForm() {
     const cents = Math.round(Number(amount) * 100);
     if (!name || !email) {
-      throw new Error("name and email are required");
+      throw new Error("Name and email are required");
     }
     if (!Number.isInteger(cents) || cents < 50) {
       throw new Error("Enter an amount of at least $0.50");
@@ -44,7 +59,6 @@ export default function Checkout({ product, onSuccess, onCancel }) {
     return cents;
   }
 
-  // React SDK path: session-key + jwt-token, then <CoinflowPurchase>.
   async function handleSdk() {
     setPreparing("sdk");
     setError(null);
@@ -89,17 +103,26 @@ export default function Checkout({ product, onSuccess, onCancel }) {
     }
 
     const cents = tokens?.subtotal.cents ?? checkoutLink?.subtotal.cents;
+    const fallbackOrder = {
+      orderId: `order_${paymentId.replaceAll("-", "").slice(0, 8)}`,
+      paymentId,
+      name,
+      email,
+      amount: { cents, currency: product.currency },
+    };
 
+    // Advance the step bar immediately; then replace with the recorded order.
+    onSuccess(fallbackOrder);
     try {
       onSuccess(await recordOrder({ paymentId, name, email, cents }));
     } catch (err) {
-      settled.current = false;
-      setError(`Payment ${paymentId} went through, but recording the order failed: ${err.message}`);
+      console.error("Payment went through, but recording the order failed:", err.message);
     }
   }
 
-  // Checkout-link guide steps 2–3: embed the hosted URL and treat Coinflow's
-  // postMessage as the equivalent of <CoinflowPurchase onSuccess>.
+  const handlePaidRef = useRef(handlePaid);
+  handlePaidRef.current = handlePaid;
+
   useEffect(() => {
     if (!checkoutLink) return undefined;
 
@@ -109,7 +132,7 @@ export default function Checkout({ product, onSuccess, onCancel }) {
       const payload = parseFrameMessage(event.data);
       if (payload?.data !== "success") return;
 
-      handlePaid(payload.info?.paymentId ?? payload.info);
+      handlePaidRef.current(payload.info?.paymentId ?? payload.info);
     }
 
     window.addEventListener("message", onMessage);
@@ -119,11 +142,22 @@ export default function Checkout({ product, onSuccess, onCancel }) {
   if (checkoutLink) {
     return (
       <section>
+        <p className="kicker">Hosted checkout</p>
         <h2>Payment</h2>
-        <p className="muted">
-          Paying {product.currency} {(checkoutLink.subtotal.cents / 100).toFixed(2)} for{" "}
-          {product.name} as {email} via hosted checkout link.
-        </p>
+        <div className="summary">
+          <div className="summary-row">
+            <span>Item</span>
+            <strong>{product.name}</strong>
+          </div>
+          <div className="summary-row">
+            <span>Payer</span>
+            <strong>{email}</strong>
+          </div>
+          <div className="summary-row">
+            <span>Total</span>
+            <strong>{formatCents(checkoutLink.subtotal.cents, product.currency)}</strong>
+          </div>
+        </div>
 
         {error && <p className="error">{error}</p>}
 
@@ -142,27 +176,33 @@ export default function Checkout({ product, onSuccess, onCancel }) {
           Back to options
         </button>
 
-        <p className="footnote">
-          Sandbox - no real money. Test card <code>5204247750001471</code> with any future expiry
-          and any CVV.
-        </p>
+        <TestCardNote />
       </section>
     );
   }
 
-  // Doc step 4: tokens from steps 2 and 3 become props on the hosted card form.
   if (tokens) {
     return (
       <section>
+        <p className="kicker">Card form</p>
         <h2>Payment</h2>
-        <p className="muted">
-          Paying {product.currency} {(tokens.subtotal.cents / 100).toFixed(2)} for {product.name} as {email}.
-        </p>
+        <div className="summary">
+          <div className="summary-row">
+            <span>Item</span>
+            <strong>{product.name}</strong>
+          </div>
+          <div className="summary-row">
+            <span>Payer</span>
+            <strong>{email}</strong>
+          </div>
+          <div className="summary-row">
+            <span>Total</span>
+            <strong>{formatCents(tokens.subtotal.cents, product.currency)}</strong>
+          </div>
+        </div>
 
         {error && <p className="error">{error}</p>}
 
-        {/* Do not pass handleHeightChange: the SDK then sets scrolling="no" and
-            the pay button can be clipped if the height value has no CSS unit. */}
         <div className="coinflow-frame">
           <CoinflowPurchase
             merchantId={tokens.merchantId}
@@ -181,22 +221,18 @@ export default function Checkout({ product, onSuccess, onCancel }) {
           Cancel
         </button>
 
-        {tokens.env === "sandbox" && (
-          <p className="footnote">
-            Sandbox - no real money. Test card <code>5204247750001471</code> with any
-            future expiry and any CVV.
-          </p>
-        )}
+        {tokens.env === "sandbox" && <TestCardNote />}
       </section>
     );
   }
 
   return (
     <section>
-      <h2>Checkout</h2>
+      <p className="kicker">Secure checkout</p>
+      <h2>Your details</h2>
       <p className="muted">
-        Paying for {product.name}. Catalog price is {product.currency} {product.price}; you can
-        change the amount for this payment.
+        Paying for {product.name}. Catalog price is {formatCents(Math.round(product.price * 100), product.currency)};
+        you can change the amount for this payment.
       </p>
 
       <form
@@ -204,53 +240,62 @@ export default function Checkout({ product, onSuccess, onCancel }) {
           event.preventDefault();
         }}
       >
-        <label htmlFor="amount">Amount ({product.currency})</label>
-        <input
-          id="amount"
-          type="number"
-          min="0.50"
-          step="0.01"
-          value={amount}
-          required
-          onChange={(event) => setAmount(event.target.value)}
-        />
+        <div className="field">
+          <label htmlFor="amount">Amount ({product.currency})</label>
+          <input
+            id="amount"
+            type="number"
+            min="0.50"
+            step="0.01"
+            value={amount}
+            required
+            onChange={(event) => setAmount(event.target.value)}
+          />
+        </div>
 
-        <label htmlFor="name">Name</label>
-        <input
-          id="name"
-          type="text"
-          value={name}
-          required
-          autoComplete="name"
-          onChange={(event) => setName(event.target.value)}
-        />
+        <div className="field">
+          <label htmlFor="name">Name</label>
+          <input
+            id="name"
+            type="text"
+            value={name}
+            required
+            autoComplete="name"
+            onChange={(event) => setName(event.target.value)}
+          />
+        </div>
 
-        <label htmlFor="email">Email</label>
-        <input
-          id="email"
-          type="email"
-          value={email}
-          required
-          autoComplete="email"
-          onChange={(event) => setEmail(event.target.value)}
-        />
+        <div className="field">
+          <label htmlFor="email">Email</label>
+          <input
+            id="email"
+            type="email"
+            value={email}
+            required
+            autoComplete="email"
+            onChange={(event) => setEmail(event.target.value)}
+          />
+        </div>
 
         {error && <p className="error">{error}</p>}
 
-        <div className="actions">
-          <button type="button" disabled={preparing} onClick={handleSdk}>
-            {preparing === "sdk" ? "Preparing..." : "Pay with React component"}
+        <div className="pay-options">
+          <button type="button" className="pay-option" disabled={preparing} onClick={handleSdk}>
+            <strong>{preparing === "sdk" ? "Preparing form…" : "Pay with React component"}</strong>
+            <span>Keep checkout on this page with Coinflow’s embedded card form.</span>
           </button>
-          <button type="button" disabled={preparing} onClick={handleLink}>
-            {preparing === "link" ? "Preparing..." : "Pay with checkout link"}
-          </button>
-          <button type="button" className="secondary" onClick={onCancel} disabled={preparing}>
-            Cancel
+          <button type="button" className="pay-option" disabled={preparing} onClick={handleLink}>
+            <strong>{preparing === "link" ? "Preparing link…" : "Pay with checkout link"}</strong>
+            <span>Embed Coinflow’s hosted checkout URL in a frame.</span>
           </button>
         </div>
+
+        <button type="button" className="secondary" onClick={onCancel} disabled={preparing}>
+          Back to product
+        </button>
       </form>
 
-      <p className="footnote">Card details are entered on Coinflow's hosted form, never here.</p>
+      <p className="footnote">Card details are entered on Coinflow’s hosted form, never here.</p>
     </section>
   );
 }
