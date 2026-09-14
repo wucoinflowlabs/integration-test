@@ -53,7 +53,41 @@ body {
 .page-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
   margin-bottom: 1.5rem;
+}
+
+.flow-switch {
+  display: flex;
+  gap: 0.2rem;
+  padding: 0.2rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+}
+
+.flow-switch button {
+  padding: 0.35rem 0.85rem;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+}
+
+.flow-switch button:hover:not(:disabled) {
+  background: var(--gold-wash);
+  color: var(--ink);
+  transform: none;
+}
+
+.flow-switch button.is-active {
+  background: var(--ink);
+  color: #f7f0e4;
+}
+
+.flow-switch button.is-active:hover:not(:disabled) {
+  background: #2a241c;
+  color: #f7f0e4;
 }
 
 .badge {
@@ -200,6 +234,24 @@ h2,
   font-weight: 500;
 }
 
+.chip.is-success {
+  border-color: transparent;
+  background: var(--success-wash);
+  color: var(--success);
+}
+
+.chip.is-pending {
+  border-color: transparent;
+  background: var(--gold-wash);
+  color: var(--gold);
+}
+
+.chip.is-danger {
+  border-color: transparent;
+  background: var(--danger-wash);
+  color: var(--danger);
+}
+
 .summary {
   display: grid;
   gap: 0.55rem;
@@ -237,6 +289,10 @@ h2,
   border-radius: 0.9rem;
   background: var(--gold-wash);
   color: #5d3d16;
+}
+
+.callout:not(:last-child) {
+  margin-bottom: 1.25rem;
 }
 
 .error {
@@ -291,6 +347,25 @@ form {
   flex-direction: column;
 }
 
+.field-row {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.field-row .field {
+  margin-bottom: 0.95rem;
+}
+
+@media (min-width: 640px) {
+  .field-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .field-row.is-3 {
+    grid-template-columns: 2fr 1fr 1fr;
+  }
+}
+
 .field {
   display: flex;
   flex-direction: column;
@@ -303,7 +378,8 @@ label {
   font-weight: 600;
 }
 
-input {
+input,
+select {
   width: 100%;
   padding: 0.8rem 0.9rem;
   border: 1px solid var(--line);
@@ -314,11 +390,13 @@ input {
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 
-input:hover {
+input:hover,
+select:hover {
   border-color: #cbbba3;
 }
 
-input:focus {
+input:focus,
+select:focus {
   border-color: var(--gold-bright);
   outline: none;
   box-shadow: 0 0 0 4px rgb(182 121 50 / 0.16);
@@ -350,6 +428,12 @@ button.pay-option:hover:not(:disabled) {
   transform: none;
 }
 
+button.pay-option.is-selected {
+  border-color: var(--gold-bright);
+  background: #fffaf2;
+  box-shadow: 0 0 0 4px rgb(182 121 50 / 0.16);
+}
+
 .pay-option strong {
   font-size: 0.98rem;
 }
@@ -359,6 +443,14 @@ button.pay-option:hover:not(:disabled) {
   font-size: 0.82rem;
   font-weight: 400;
   line-height: 1.45;
+}
+
+.quote-speeds {
+  margin-top: 1.5rem;
+}
+
+.quote-speeds .kicker {
+  margin-bottom: 0.75rem;
 }
 
 .actions {

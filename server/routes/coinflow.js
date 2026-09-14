@@ -1,11 +1,17 @@
 import { Router } from "express";
 import { PRODUCT, cartForChargebackProtection, centsFromRequest } from "../catalog.js";
 import {
+  addWithdrawBankAccount,
+  bankAccountFromRequest,
   coinflowEnv,
   createCheckoutJwt,
   createCheckoutLink,
   createSessionKey,
   customerIdFor,
+  getWithdrawer,
+  getWithdrawQuote,
+  kycInfoFromRequest,
+  verifyWithdrawerKyc,
 } from "../coinflow.js";
 
 const router = Router();
@@ -105,6 +111,124 @@ router.post("/checkout-link", async (req, res) => {
     res.json({ link, subtotal, webhookInfo, chargebackProtectionData });
   } catch (error) {
     console.error("Failed to create a Coinflow checkout link:", error.message);
+    res.status(502).json({ error: error.message });
+  }
+});
+
+// Payouts guide step 1. Always 200 from this server: Coinflow's 451 (more
+// verification needed) is returned as needsVerification + verificationLink.
+router.post("/withdraw/kyc", async (req, res) => {
+  let info;
+  try {
+    info = kycInfoFromRequest(req.body);
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+
+  const userId = customerIdFor(info.email);
+  const redirectLink =
+    typeof req.body?.redirectLink === "string" && req.body.redirectLink.trim()
+      ? req.body.redirectLink.trim()
+      : undefined;
+
+  try {
+    const result = await verifyWithdrawerKyc({ userId, info, redirectLink });
+    res.json({ userId, email: info.email, ...result });
+  } catch (error) {
+    console.error("Failed to verify the Coinflow withdrawer:", error.message);
+    res.status(502).json({ error: error.message });
+  }
+});
+
+router.get("/withdraw", async (req, res) => {
+  const email = typeof req.query.email === "string" ? req.query.email.trim() : "";
+  if (!email) {
+    return res.status(400).json({ error: "email is required" });
+  }
+
+  try {
+    const userId = customerIdFor(email);
+    const result = await getWithdrawer(userId);
+    res.json({ userId, email: email.toLowerCase(), ...result });
+  } catch (error) {
+    console.error("Failed to load the Coinflow withdrawer:", error.message);
+    res.status(502).json({ error: error.message });
+  }
+});
+
+// Payouts guide step 3. US bank account. Requires an approved withdrawer.
+router.post("/withdraw/account", async (req, res) => {
+  const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
+  if (!email || !email.includes("@")) {
+    return res.status(400).json({ error: "email is required" });
+  }
+
+  let account;
+  try {
+    account = bankAccountFromRequest(req.body);
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+
+  const userId = customerIdFor(email);
+
+  try {
+    const current = await getWithdrawer(userId);
+    if (current.withdrawer?.verification?.status !== "approved") {
+      return res.status(409).json({
+        error: "Withdrawer must be approved before adding a destination",
+        userId,
+        email,
+        ...current,
+      });
+    }
+
+    const result = await addWithdrawBankAccount({ userId, account });
+    res.json({ userId, email, ...result });
+  } catch (error) {
+    console.error("Failed to add a Coinflow payout destination:", error.message);
+    if (error.message.includes("does not have permission to create bank accounts")) {
+      return res.status(403).json({
+        error:
+          "This merchant cannot create bank accounts through the API. Use Coinflow’s bank authentication UI, or ask Coinflow to enable that permission.",
+      });
+    }
+    res.status(502).json({ error: error.message });
+  }
+});
+
+const DEFAULT_PAYOUT_CENTS = 2500;
+
+// Payouts guide step 4. Delegated quote: API key + userId + destination token + cents.
+router.get("/withdraw/quote", async (req, res) => {
+  const email = typeof req.query.email === "string" ? req.query.email.trim() : "";
+  if (!email) {
+    return res.status(400).json({ error: "email is required" });
+  }
+
+  let cents;
+  try {
+    cents = centsFromRequest(req.query.cents === undefined ? DEFAULT_PAYOUT_CENTS : Number(req.query.cents));
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+
+  const userId = customerIdFor(email);
+  let accountToken = typeof req.query.accountToken === "string" ? req.query.accountToken.trim() : "";
+
+  try {
+    if (!accountToken) {
+      const current = await getWithdrawer(userId);
+      accountToken = current.withdrawer?.bankAccounts?.[0]?.token ?? "";
+    }
+    if (!accountToken) {
+      return res.status(400).json({ error: "Save a payout destination before requesting a quote" });
+    }
+
+    const quote = await getWithdrawQuote({ userId, cents, accountToken });
+    res.json({ userId, email: email.toLowerCase(), cents, ...quote });
+  } catch (error) {
+    console.error("Failed to get a Coinflow payout quote:", error.message);
     res.status(502).json({ error: error.message });
   }
 });
