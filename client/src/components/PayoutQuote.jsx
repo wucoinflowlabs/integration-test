@@ -214,6 +214,10 @@ export default function PayoutQuote({ payout, onPaid, onBack }) {
               onClick={() =>
                 onPaid({
                   ...payout,
+                  withdrawer: {
+                    ...(payout?.withdrawer ?? {}),
+                    bankAccounts: accounts,
+                  },
                   quote,
                   cents: quote.quote?.cents ?? Math.round(Number(amount) * 100),
                   accountToken,

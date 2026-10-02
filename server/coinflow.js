@@ -17,12 +17,41 @@ function apiKey() {
   return key;
 }
 
+function configError(message) {
+  const error = new Error(message);
+  error.status = 400;
+  return error;
+}
+
+// Checkout can target another merchant when that merchant's API key is in the
+// environment as COINFLOW_API_KEY_<MERCHANT_ID>. The key never leaves the server.
+export function resolveMerchant(merchantId) {
+  const requested = typeof merchantId === "string" ? merchantId.trim() : "";
+  if (requested && !/^[A-Za-z0-9_-]+$/.test(requested)) {
+    throw configError("merchantId may only contain letters, numbers, _ and -");
+  }
+
+  const fallback = process.env.COINFLOW_MERCHANT_ID?.trim() || "";
+  if (!requested || (fallback && requested.toLowerCase() === fallback.toLowerCase())) {
+    if (!fallback && !requested) {
+      throw configError("COINFLOW_MERCHANT_ID is not set");
+    }
+    return { merchantId: fallback || requested, apiKey: apiKey() };
+  }
+
+  const key = process.env[`COINFLOW_API_KEY_${requested.toUpperCase()}`];
+  if (!key) {
+    throw configError(`No API key is configured for merchant ${requested}`);
+  }
+  return { merchantId: requested, apiKey: key };
+}
+
 // Server-to-server calls authenticate with the merchant API key in the
 // Authorization header. This is the header the guide's curl example omits.
-async function coinflowFetch(path, { headers, ...options } = {}) {
+async function coinflowFetch(path, { apiKey: key, headers, ...options } = {}) {
   const res = await fetch(`${BASE_URLS[coinflowEnv()]}${path}`, {
     ...options,
-    headers: { Authorization: apiKey(), accept: "application/json", ...headers },
+    headers: { Authorization: key ?? apiKey(), accept: "application/json", ...headers },
   });
 
   const raw = await res.text();
@@ -62,14 +91,22 @@ export function customerIdFor(email) {
 }
 
 // Doc step 2. Returns a JWT authorizing one payer, valid for 24 hours.
-export async function createSessionKey(userId) {
+export async function createSessionKey(userId, merchantId) {
+  const merchant = resolveMerchant(merchantId);
   const { key } = await coinflowRequest("/api/auth/session-key", {
+    apiKey: merchant.apiKey,
     headers: { "x-coinflow-auth-user-id": userId },
   });
 
   // The session key encodes which merchant the API key belongs to, so we can
   // report it rather than depending on a hand-copied merchant ID.
-  return { sessionKey: key, merchantId: decodeJwtPayload(key)?.merchantId ?? null };
+  const decoded = decodeJwtPayload(key)?.merchantId ?? null;
+  if (decoded && decoded.toLowerCase() !== merchant.merchantId.toLowerCase()) {
+    throw configError(
+      `The API key configured for ${merchant.merchantId} belongs to merchant ${decoded}`,
+    );
+  }
+  return { sessionKey: key, merchantId: decoded ?? merchant.merchantId };
 }
 
 // Doc step 3. Coinflow signs the cart so the browser cannot change the amount
@@ -78,11 +115,14 @@ export async function createCheckoutJwt({
   cents,
   currency,
   email,
+  merchantId,
   webhookInfo,
   chargebackProtectionData,
 }) {
+  const merchant = resolveMerchant(merchantId);
   const { checkoutJwtToken } = await coinflowRequest("/api/checkout/jwt-token", {
     method: "POST",
+    apiKey: merchant.apiKey,
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       subtotal: { cents, currency },
@@ -102,11 +142,14 @@ export async function createCheckoutLink({
   cents,
   currency,
   email,
+  merchantId,
   webhookInfo,
   chargebackProtectionData,
 }) {
+  const merchant = resolveMerchant(merchantId);
   const { link } = await coinflowRequest("/api/checkout/link", {
     method: "POST",
+    apiKey: merchant.apiKey,
     headers: {
       "Content-Type": "application/json",
       "x-coinflow-auth-user-id": userId,
@@ -376,4 +419,35 @@ export async function getWithdrawQuote({ userId, cents, accountToken }) {
   });
 
   return summarizeQuote(body);
+}
+
+export const BANK_PAYOUT_SPEEDS = ["asap", "same_day", "standard"];
+
+export function payoutSpeedFromRequest(value) {
+  const speed = typeof value === "string" ? value.trim() : "";
+  if (!BANK_PAYOUT_SPEEDS.includes(speed)) {
+    throw new Error("speed must be asap, same_day, or standard");
+  }
+  return speed;
+}
+
+// Payouts guide step 5. Debits the merchant Coinflow wallet and pays the
+// destination token. Idempotency key is minted by our route, not the browser.
+export async function initiateDelegatedPayout({ userId, cents, accountToken, speed, idempotencyKey }) {
+  const body = await coinflowRequest("/api/merchant/withdraws/payout/delegated", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      speed,
+      userId,
+      idempotencyKey,
+      account: accountToken,
+      amount: { cents, currency: "USD" },
+    }),
+  });
+
+  return {
+    effectiveSpeed: body.effectiveSpeed ?? speed,
+    signature: body.signature ?? null,
+  };
 }

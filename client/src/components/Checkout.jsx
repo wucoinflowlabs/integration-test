@@ -34,9 +34,17 @@ function TestCardNote() {
   );
 }
 
-export default function Checkout({ product, onSuccess, onCancel, onPaymentSurface }) {
+export default function Checkout({
+  product,
+  defaultMerchantId,
+  onMerchantIdChange,
+  onSuccess,
+  onCancel,
+  onPaymentSurface,
+}) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [merchantId, setMerchantId] = useState(defaultMerchantId ?? "");
   const [amount, setAmount] = useState(String(product.price));
   const [tokens, setTokens] = useState(null);
   const [checkoutLink, setCheckoutLink] = useState(null);
@@ -48,10 +56,24 @@ export default function Checkout({ product, onSuccess, onCancel, onPaymentSurfac
     onPaymentSurface?.(Boolean(tokens || checkoutLink));
   }, [tokens, checkoutLink, onPaymentSurface]);
 
+  useEffect(() => {
+    if (defaultMerchantId) {
+      setMerchantId((current) => current || defaultMerchantId);
+    }
+  }, [defaultMerchantId]);
+
+  function updateMerchantId(value) {
+    setMerchantId(value);
+    onMerchantIdChange?.(value.trim());
+  }
+
   function centsFromForm() {
     const cents = Math.round(Number(amount) * 100);
     if (!name || !email) {
       throw new Error("Name and email are required");
+    }
+    if (!merchantId.trim()) {
+      throw new Error("Merchant ID is required");
     }
     if (!Number.isInteger(cents) || cents < 50) {
       throw new Error("Enter an amount of at least $0.50");
@@ -65,9 +87,10 @@ export default function Checkout({ product, onSuccess, onCancel, onPaymentSurfac
 
     try {
       const cents = centsFromForm();
+      const payee = merchantId.trim();
       const [session, checkout] = await Promise.all([
-        fetchSessionKey(email),
-        fetchJwtToken(email, cents),
+        fetchSessionKey(email, payee),
+        fetchJwtToken(email, cents, payee),
       ]);
       setTokens({ ...session, ...checkout });
     } catch (err) {
@@ -83,7 +106,7 @@ export default function Checkout({ product, onSuccess, onCancel, onPaymentSurfac
 
     try {
       const cents = centsFromForm();
-      setCheckoutLink(await fetchCheckoutLink(email, cents));
+      setCheckoutLink(await fetchCheckoutLink(email, cents, merchantId.trim()));
     } catch (err) {
       setError(err.message);
     } finally {
@@ -154,6 +177,10 @@ export default function Checkout({ product, onSuccess, onCancel, onPaymentSurfac
             <strong>{email}</strong>
           </div>
           <div className="summary-row">
+            <span>Merchant</span>
+            <strong>{merchantId.trim()}</strong>
+          </div>
+          <div className="summary-row">
             <span>Total</span>
             <strong>{formatCents(checkoutLink.subtotal.cents, product.currency)}</strong>
           </div>
@@ -194,6 +221,10 @@ export default function Checkout({ product, onSuccess, onCancel, onPaymentSurfac
           <div className="summary-row">
             <span>Payer</span>
             <strong>{email}</strong>
+          </div>
+          <div className="summary-row">
+            <span>Merchant</span>
+            <strong>{tokens.merchantId}</strong>
           </div>
           <div className="summary-row">
             <span>Total</span>
@@ -250,6 +281,19 @@ export default function Checkout({ product, onSuccess, onCancel, onPaymentSurfac
             value={amount}
             required
             onChange={(event) => setAmount(event.target.value)}
+          />
+        </div>
+
+        <div className="field">
+          <label htmlFor="merchantId">Merchant ID</label>
+          <input
+            id="merchantId"
+            type="text"
+            value={merchantId}
+            required
+            autoComplete="off"
+            spellCheck={false}
+            onChange={(event) => updateMerchantId(event.target.value)}
           />
         </div>
 

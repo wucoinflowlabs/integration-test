@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Router } from "express";
 import { PRODUCT, cartForChargebackProtection, centsFromRequest } from "../catalog.js";
 import {
@@ -10,11 +11,29 @@ import {
   customerIdFor,
   getWithdrawer,
   getWithdrawQuote,
+  initiateDelegatedPayout,
   kycInfoFromRequest,
+  payoutSpeedFromRequest,
   verifyWithdrawerKyc,
 } from "../coinflow.js";
 
 const router = Router();
+
+function merchantIdFrom(body) {
+  const value = body?.merchantId;
+  if (value == null || value === "") return undefined;
+  if (typeof value !== "string") {
+    const error = new Error("merchantId must be a string");
+    error.status = 400;
+    throw error;
+  }
+  return value.trim();
+}
+
+function sendCoinflowError(res, error, logLabel) {
+  console.error(logLabel, error.message);
+  res.status(error.status === 400 ? 400 : 502).json({ error: error.message });
+}
 
 // Public merchant id + env for <CoinflowPurchaseProtection> on every page.
 // The API key is not included.
@@ -35,12 +54,18 @@ router.post("/session-key", async (req, res) => {
     return res.status(400).json({ error: "email is required" });
   }
 
+  let merchantId;
   try {
-    const { sessionKey, merchantId } = await createSessionKey(customerIdFor(email));
-    res.json({ sessionKey, merchantId, env: coinflowEnv() });
+    merchantId = merchantIdFrom(req.body);
   } catch (error) {
-    console.error("Failed to create a Coinflow session key:", error.message);
-    res.status(502).json({ error: error.message });
+    return res.status(400).json({ error: error.message });
+  }
+
+  try {
+    const session = await createSessionKey(customerIdFor(email), merchantId);
+    res.json({ sessionKey: session.sessionKey, merchantId: session.merchantId, env: coinflowEnv() });
+  } catch (error) {
+    sendCoinflowError(res, error, "Failed to create a Coinflow session key:");
   }
 });
 
@@ -54,8 +79,10 @@ router.post("/jwt-token", async (req, res) => {
   }
 
   let cents;
+  let merchantId;
   try {
     cents = centsFromRequest(requestedCents);
+    merchantId = merchantIdFrom(req.body);
   } catch (error) {
     return res.status(400).json({ error: error.message });
   }
@@ -68,14 +95,14 @@ router.post("/jwt-token", async (req, res) => {
     const jwtToken = await createCheckoutJwt({
       ...subtotal,
       email,
+      merchantId,
       webhookInfo,
       chargebackProtectionData,
     });
 
     res.json({ jwtToken, subtotal, webhookInfo, chargebackProtectionData });
   } catch (error) {
-    console.error("Failed to create a Coinflow checkout JWT:", error.message);
-    res.status(502).json({ error: error.message });
+    sendCoinflowError(res, error, "Failed to create a Coinflow checkout JWT:");
   }
 });
 
@@ -89,8 +116,10 @@ router.post("/checkout-link", async (req, res) => {
   }
 
   let cents;
+  let merchantId;
   try {
     cents = centsFromRequest(requestedCents);
+    merchantId = merchantIdFrom(req.body);
   } catch (error) {
     return res.status(400).json({ error: error.message });
   }
@@ -104,14 +133,14 @@ router.post("/checkout-link", async (req, res) => {
       userId: customerIdFor(email),
       ...subtotal,
       email,
+      merchantId,
       webhookInfo,
       chargebackProtectionData,
     });
 
     res.json({ link, subtotal, webhookInfo, chargebackProtectionData });
   } catch (error) {
-    console.error("Failed to create a Coinflow checkout link:", error.message);
-    res.status(502).json({ error: error.message });
+    sendCoinflowError(res, error, "Failed to create a Coinflow checkout link:");
   }
 });
 
@@ -229,6 +258,68 @@ router.get("/withdraw/quote", async (req, res) => {
     res.json({ userId, email: email.toLowerCase(), cents, ...quote });
   } catch (error) {
     console.error("Failed to get a Coinflow payout quote:", error.message);
+    res.status(502).json({ error: error.message });
+  }
+});
+
+// Payouts guide step 5. Debits the Coinflow wallet. Idempotency key stays here.
+router.post("/withdraw/payout", async (req, res) => {
+  const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
+  if (!email || !email.includes("@")) {
+    return res.status(400).json({ error: "email is required" });
+  }
+
+  if (req.body?.cents === undefined || req.body?.cents === null || req.body?.cents === "") {
+    return res.status(400).json({ error: "cents is required" });
+  }
+
+  let cents;
+  let speed;
+  try {
+    cents = centsFromRequest(req.body.cents);
+    speed = payoutSpeedFromRequest(req.body?.speed);
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+
+  const userId = customerIdFor(email);
+  let accountToken = typeof req.body?.accountToken === "string" ? req.body.accountToken.trim() : "";
+
+  try {
+    const current = await getWithdrawer(userId);
+    if (current.withdrawer?.verification?.status !== "approved") {
+      return res.status(409).json({ error: "Withdrawer must be approved before paying out" });
+    }
+
+    const saved = current.withdrawer?.bankAccounts ?? [];
+    if (accountToken && !saved.some((account) => account.token === accountToken)) {
+      return res.status(400).json({ error: "accountToken does not belong to this withdrawer" });
+    }
+    if (!accountToken) {
+      accountToken = saved[0]?.token ?? "";
+    }
+    if (!accountToken) {
+      return res.status(400).json({ error: "Save a payout destination before sending a payout" });
+    }
+
+    const result = await initiateDelegatedPayout({
+      userId,
+      cents,
+      accountToken,
+      speed,
+      idempotencyKey: randomUUID(),
+    });
+
+    res.json({
+      userId,
+      email,
+      cents,
+      speed,
+      effectiveSpeed: result.effectiveSpeed,
+      signature: result.signature,
+    });
+  } catch (error) {
+    console.error("Failed to initiate a Coinflow payout:", error.message);
     res.status(502).json({ error: error.message });
   }
 });

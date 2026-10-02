@@ -7,6 +7,7 @@ import Confirmation from "./components/Confirmation.jsx";
 import PayoutKyc from "./components/PayoutKyc.jsx";
 import PayoutDestination from "./components/PayoutDestination.jsx";
 import PayoutQuote from "./components/PayoutQuote.jsx";
+import PayoutSend from "./components/PayoutSend.jsx";
 
 const CHECKOUT_STEPS = [
   { id: "product", label: "Product" },
@@ -29,22 +30,10 @@ function stepClass(index, currentIndex, lastIndex) {
   return undefined;
 }
 
-function PayoutPlaceholder({ title, body, onBack, backLabel = "Back to identity" }) {
-  return (
-    <section>
-      <p className="kicker">Coming next</p>
-      <h2>{title}</h2>
-      <p className="muted">{body}</p>
-      <button type="button" className="secondary" onClick={onBack}>
-        {backLabel}
-      </button>
-    </section>
-  );
-}
-
 export default function App() {
   const [product, setProduct] = useState(null);
   const [coinflow, setCoinflow] = useState(null);
+  const [payMerchantId, setPayMerchantId] = useState("");
   const [loadError, setLoadError] = useState(null);
   const [mode, setMode] = useState("checkout");
   const [step, setStep] = useState("product");
@@ -62,6 +51,7 @@ export default function App() {
   function handleSuccess(completedOrder) {
     setOrder(completedOrder);
     setWide(false);
+    setPayMerchantId("");
     setStep("confirmation");
   }
 
@@ -75,6 +65,7 @@ export default function App() {
     setMode(next);
     setOrder(null);
     setPayout(null);
+    setPayMerchantId("");
     setWide(false);
     setStep(next === "payout" ? "kyc" : "product");
   }
@@ -85,7 +76,11 @@ export default function App() {
   return (
     <main className={wide ? "page is-wide" : "page"}>
       {coinflow && (
-        <CoinflowPurchaseProtection merchantId={coinflow.merchantId} coinflowEnv={coinflow.env} />
+        <CoinflowPurchaseProtection
+          key={payMerchantId || coinflow.merchantId}
+          merchantId={payMerchantId || coinflow.merchantId}
+          coinflowEnv={coinflow.env}
+        />
       )}
       <header className="page-header">
         <p className="badge">Sandbox</p>
@@ -135,9 +130,12 @@ export default function App() {
             {product && step === "checkout" && (
               <Checkout
                 product={product}
+                defaultMerchantId={coinflow?.merchantId ?? ""}
+                onMerchantIdChange={setPayMerchantId}
                 onSuccess={handleSuccess}
                 onCancel={() => {
                   setWide(false);
+                  setPayMerchantId("");
                   setStep("product");
                 }}
                 onPaymentSurface={setWide}
@@ -189,12 +187,7 @@ export default function App() {
         )}
 
         {mode === "payout" && step === "paid" && (
-          <PayoutPlaceholder
-            title="Initiate the payout"
-            body="Step 5 debits your Coinflow wallet and sends funds at the speed you picked. Quote is done; that endpoint is next."
-            onBack={() => setStep("quote")}
-            backLabel="Back to quote"
-          />
+          <PayoutSend payout={payout} onBack={() => setStep("quote")} />
         )}
       </div>
 

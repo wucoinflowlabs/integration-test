@@ -26,17 +26,17 @@ export function fetchCoinflowConfig() {
 }
 
 // Doc step 2
-export function fetchSessionKey(email) {
-  return postJson("/api/coinflow/session-key", { email });
+export function fetchSessionKey(email, merchantId) {
+  return postJson("/api/coinflow/session-key", { email, merchantId });
 }
 
 // Doc step 3
-export function fetchJwtToken(email, cents) {
-  return postJson("/api/coinflow/jwt-token", { email, cents });
+export function fetchJwtToken(email, cents, merchantId) {
+  return postJson("/api/coinflow/jwt-token", { email, cents, merchantId });
 }
 
-export function fetchCheckoutLink(email, cents) {
-  return postJson("/api/coinflow/checkout-link", { email, cents });
+export function fetchCheckoutLink(email, cents, merchantId) {
+  return postJson("/api/coinflow/checkout-link", { email, cents, merchantId });
 }
 
 // Payouts guide step 1
@@ -59,6 +59,11 @@ export function fetchWithdrawQuote({ email, cents, accountToken }) {
   if (cents != null) params.set("cents", String(cents));
   if (accountToken) params.set("accountToken", accountToken);
   return request(`/api/coinflow/withdraw/quote?${params}`);
+}
+
+// Payouts guide step 5
+export function submitWithdrawPayout({ email, cents, speed, accountToken }) {
+  return postJson("/api/coinflow/withdraw/payout", { email, cents, speed, accountToken });
 }
 
 // After Coinflow reports a successful charge

@@ -535,6 +535,9 @@ button.full {
 .receipt-row strong,
 .receipt-row code {
   color: var(--ink);
+  max-width: 62%;
+  overflow-wrap: anywhere;
+  text-align: right;
 }
 
 .success-mark {
