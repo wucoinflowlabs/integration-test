@@ -33,7 +33,6 @@ function stepClass(index, currentIndex, lastIndex) {
 export default function App() {
   const [product, setProduct] = useState(null);
   const [coinflow, setCoinflow] = useState(null);
-  const [payMerchantId, setPayMerchantId] = useState("");
   const [loadError, setLoadError] = useState(null);
   const [mode, setMode] = useState("checkout");
   const [step, setStep] = useState("product");
@@ -51,7 +50,6 @@ export default function App() {
   function handleSuccess(completedOrder) {
     setOrder(completedOrder);
     setWide(false);
-    setPayMerchantId("");
     setStep("confirmation");
   }
 
@@ -65,7 +63,6 @@ export default function App() {
     setMode(next);
     setOrder(null);
     setPayout(null);
-    setPayMerchantId("");
     setWide(false);
     setStep(next === "payout" ? "kyc" : "product");
   }
@@ -76,11 +73,7 @@ export default function App() {
   return (
     <main className={wide ? "page is-wide" : "page"}>
       {coinflow && (
-        <CoinflowPurchaseProtection
-          key={payMerchantId || coinflow.merchantId}
-          merchantId={payMerchantId || coinflow.merchantId}
-          coinflowEnv={coinflow.env}
-        />
+        <CoinflowPurchaseProtection merchantId={coinflow.merchantId} coinflowEnv={coinflow.env} />
       )}
       <header className="page-header">
         <p className="badge">Sandbox</p>
@@ -130,12 +123,9 @@ export default function App() {
             {product && step === "checkout" && (
               <Checkout
                 product={product}
-                defaultMerchantId={coinflow?.merchantId ?? ""}
-                onMerchantIdChange={setPayMerchantId}
                 onSuccess={handleSuccess}
                 onCancel={() => {
                   setWide(false);
-                  setPayMerchantId("");
                   setStep("product");
                 }}
                 onPaymentSurface={setWide}

@@ -26,17 +26,17 @@ export function fetchCoinflowConfig() {
 }
 
 // Doc step 2
-export function fetchSessionKey(email, merchantId) {
-  return postJson("/api/coinflow/session-key", { email, merchantId });
+export function fetchSessionKey(email) {
+  return postJson("/api/coinflow/session-key", { email });
 }
 
 // Doc step 3
-export function fetchJwtToken(email, cents, merchantId) {
-  return postJson("/api/coinflow/jwt-token", { email, cents, merchantId });
+export function fetchJwtToken(email, cents) {
+  return postJson("/api/coinflow/jwt-token", { email, cents });
 }
 
-export function fetchCheckoutLink(email, cents, merchantId) {
-  return postJson("/api/coinflow/checkout-link", { email, cents, merchantId });
+export function fetchCheckoutLink(email, cents) {
+  return postJson("/api/coinflow/checkout-link", { email, cents });
 }
 
 // Payouts guide step 1

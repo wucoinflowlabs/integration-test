@@ -19,22 +19,6 @@ import {
 
 const router = Router();
 
-function merchantIdFrom(body) {
-  const value = body?.merchantId;
-  if (value == null || value === "") return undefined;
-  if (typeof value !== "string") {
-    const error = new Error("merchantId must be a string");
-    error.status = 400;
-    throw error;
-  }
-  return value.trim();
-}
-
-function sendCoinflowError(res, error, logLabel) {
-  console.error(logLabel, error.message);
-  res.status(error.status === 400 ? 400 : 502).json({ error: error.message });
-}
-
 // Public merchant id + env for <CoinflowPurchaseProtection> on every page.
 // The API key is not included.
 router.get("/config", (req, res) => {
@@ -54,18 +38,12 @@ router.post("/session-key", async (req, res) => {
     return res.status(400).json({ error: "email is required" });
   }
 
-  let merchantId;
   try {
-    merchantId = merchantIdFrom(req.body);
+    const { sessionKey, merchantId } = await createSessionKey(customerIdFor(email));
+    res.json({ sessionKey, merchantId, env: coinflowEnv() });
   } catch (error) {
-    return res.status(400).json({ error: error.message });
-  }
-
-  try {
-    const session = await createSessionKey(customerIdFor(email), merchantId);
-    res.json({ sessionKey: session.sessionKey, merchantId: session.merchantId, env: coinflowEnv() });
-  } catch (error) {
-    sendCoinflowError(res, error, "Failed to create a Coinflow session key:");
+    console.error("Failed to create a Coinflow session key:", error.message);
+    res.status(502).json({ error: error.message });
   }
 });
 
@@ -79,10 +57,8 @@ router.post("/jwt-token", async (req, res) => {
   }
 
   let cents;
-  let merchantId;
   try {
     cents = centsFromRequest(requestedCents);
-    merchantId = merchantIdFrom(req.body);
   } catch (error) {
     return res.status(400).json({ error: error.message });
   }
@@ -95,14 +71,14 @@ router.post("/jwt-token", async (req, res) => {
     const jwtToken = await createCheckoutJwt({
       ...subtotal,
       email,
-      merchantId,
       webhookInfo,
       chargebackProtectionData,
     });
 
     res.json({ jwtToken, subtotal, webhookInfo, chargebackProtectionData });
   } catch (error) {
-    sendCoinflowError(res, error, "Failed to create a Coinflow checkout JWT:");
+    console.error("Failed to create a Coinflow checkout JWT:", error.message);
+    res.status(502).json({ error: error.message });
   }
 });
 
@@ -116,10 +92,8 @@ router.post("/checkout-link", async (req, res) => {
   }
 
   let cents;
-  let merchantId;
   try {
     cents = centsFromRequest(requestedCents);
-    merchantId = merchantIdFrom(req.body);
   } catch (error) {
     return res.status(400).json({ error: error.message });
   }
@@ -133,14 +107,14 @@ router.post("/checkout-link", async (req, res) => {
       userId: customerIdFor(email),
       ...subtotal,
       email,
-      merchantId,
       webhookInfo,
       chargebackProtectionData,
     });
 
     res.json({ link, subtotal, webhookInfo, chargebackProtectionData });
   } catch (error) {
-    sendCoinflowError(res, error, "Failed to create a Coinflow checkout link:");
+    console.error("Failed to create a Coinflow checkout link:", error.message);
+    res.status(502).json({ error: error.message });
   }
 });
 
